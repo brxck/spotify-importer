@@ -1,4 +1,5 @@
 import { createHash } from "https://deno.land/std/hash/mod.ts";
+import { openBrowser } from "./util.ts";
 
 const PORT = 4242;
 const CLIENT_ID = "c2c4830c1bd64f0a9cb932091a365d0c";
@@ -81,6 +82,7 @@ async function getAccessToken(
     }
   }
 
+  if (!accessToken) throw new Error("Couldn't get access token.");
   return accessToken;
 }
 
@@ -113,6 +115,7 @@ export async function auth() {
   const pkce = generatePkce();
   const authUri = getAuthUri(pkce.codeChallenge);
   const server = Deno.listen({ port: PORT });
+  // openBrowser(`http://localhost:${PORT}`);
   const token = await getAccessToken(server, authUri, pkce.codeVerifier);
   console.debug("Access token retrieved.", token);
   return token;
