@@ -1,4 +1,4 @@
-import { createHash } from "https://deno.land/std/hash/mod.ts";
+import { createHash } from "https://deno.land/std@0.107.0/hash/mod.ts";
 import { openBrowser } from "./util.ts";
 
 const PORT = 4242;

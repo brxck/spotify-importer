@@ -1,49 +1,42 @@
 import { auth } from "./auth.ts";
 import { spotify } from "./spotify.ts";
-import "./types/spotify.ts";
+import { definiteMatchPrompt } from "./prompt.ts";
+import {
+  searchTypes,
+  SearchType,
+  SearchTarget,
+  Matches,
+  SearchResult,
+  PossibleMatch,
+} from "./types/index.ts";
 
-const searchTypes = ["album", "artist", "track"] as const;
-type SearchType = typeof searchTypes[number];
-
-type SearchTarget = Record<string, string>;
-
-type SearchResult =
-  | SpotifyApi.AlbumObjectSimplified
-  | SpotifyApi.ArtistObjectFull
-  | SpotifyApi.TrackObjectFull
-  | SpotifyApi.PlaylistObjectSimplified
-  | SpotifyApi.ShowObjectSimplified
-  | SpotifyApi.EpisodeObjectSimplified;
-
-type PossibleMatch = {
-  target: SearchTarget;
-  matches: SearchResult[];
-};
-
-async function findSpotifyMatches(type: SearchType, targets: SearchTarget[]) {
+async function findSpotifyMatches(
+  type: SearchType,
+  targets: SearchTarget[]
+): Promise<Matches> {
   const unmatched: SearchTarget[] = [];
-  const definiteMatches: SearchResult[] = [];
-  const possibleMatches: PossibleMatch[] = [];
+  const definite: SearchResult[] = [];
+  const possible: PossibleMatch[] = [];
 
   for (const target of targets) {
     const response = await spotify.search(type, target);
     const body: SpotifyApi.SearchResponse = await response.json();
     const resultsKey = (type + "s") as keyof SpotifyApi.SearchResponse;
-    const results = body[resultsKey]?.items;
+    const results = body[resultsKey]?.items as SearchResult[];
 
     if (!results?.length) {
       unmatched.push(target);
       console.log("No match", JSON.stringify(target));
     } else if (results.length === 1) {
-      definiteMatches.push(results[0]);
+      definite.push(results[0]);
       console.log("Definite match", JSON.stringify(target));
     } else {
-      possibleMatches.push({ target, matches: results });
+      possible.push({ target, matches: results });
       console.log("Possible match", JSON.stringify(target));
     }
   }
 
-  return { unmatched, definiteMatches, possibleMatches };
+  return { unmatched, definite, possible };
 }
 
 function parseCsv(lines: string[]) {
@@ -71,7 +64,11 @@ function parseCsv(lines: string[]) {
 async function main() {
   const [searchType, csvPath, ..._] = Deno.args;
 
-  if (!csvPath) {
+  let matches;
+  if (searchType === "matches") {
+    console.log("Loading matches json");
+    matches = JSON.parse(Deno.readTextFileSync(csvPath));
+  } else if (!csvPath) {
     throw new Error("CSV path required");
   } else if (!searchTypes.find((validType) => validType === searchType)) {
     throw new Error(`type must be one of ${searchTypes}`);
@@ -83,8 +80,9 @@ async function main() {
   const token = await auth();
   spotify.init(token);
 
-  const results = await findSpotifyMatches(searchType as SearchType, targets);
-  Deno.writeTextFile("results.json", JSON.stringify(results, null, 2));
+  if (!matches)
+    matches = await findSpotifyMatches(searchType as SearchType, targets);
+  definiteMatchPrompt(matches);
 }
 
 await main();
