@@ -1,4 +1,5 @@
 import { Matches } from "./types/index.ts";
+import { spotify } from "./spotify.ts";
 
 type Action = {
   id: string;
@@ -46,7 +47,7 @@ export function promptActions(options: {
   return actions[index];
 }
 
-export function definiteMatchPrompt(matches: Matches) {
+export async function definiteMatchPrompt(matches: Matches) {
   const { unmatched, definite, possible } = matches;
   if (definite.length) {
     const actions = [
@@ -64,7 +65,8 @@ export function definiteMatchPrompt(matches: Matches) {
         console.log("todo");
         break;
       case "library":
-        console.log("todo");
+        await spotify.saveAlbums(definite.map((x) => x.id));
+        console.log(definite.length, "albums saved.");
         break;
       case "json":
         Deno.writeTextFile("matches.json", JSON.stringify(matches, null, 2));
