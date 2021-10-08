@@ -77,8 +77,8 @@ async function main() {
   const csv = Deno.readTextFileSync(csvPath).split("\n");
   const targets = parseCsv(csv);
 
-  const token = await auth();
-  spotify.init(token);
+  const tokens = await auth();
+  spotify.init(tokens.access_token);
 
   if (!matches)
     matches = await findSpotifyMatches(searchType as SearchType, targets);

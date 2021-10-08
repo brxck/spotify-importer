@@ -1,4 +1,8 @@
 import { createHash } from "https://deno.land/std@0.107.0/hash/mod.ts";
+import {
+  ensureDirSync,
+  existsSync,
+} from "https://deno.land/std@0.107.0/fs/mod.ts";
 import { openBrowser } from "./util.ts";
 
 const PORT = 4242;
@@ -8,6 +12,14 @@ const SCOPES = "user-library-modify user-read-private";
 interface Pkce {
   codeVerifier: string;
   codeChallenge: string;
+}
+
+interface Tokens {
+  access_token: string;
+  token_type: string;
+  scope: string;
+  expires_in: number;
+  refresh_token: string;
 }
 
 function generatePkce(): Pkce {
@@ -36,13 +48,13 @@ function getAuthUri(codeChallenge: string) {
   return `https://accounts.spotify.com/authorize?${queryString}`;
 }
 
-async function getAccessToken(
+async function getTokens(
   server: Deno.Listener,
   authUri: string,
   codeVerifier: string
 ) {
   console.log(`Please open http://localhost:${PORT}/login`);
-  let accessToken: string | null = null;
+  let tokens: Tokens | null = null;
 
   serverLoop: for await (const conn of server) {
     const httpConn = Deno.serveHttp(conn);
@@ -68,7 +80,7 @@ async function getAccessToken(
             })
           );
           // 3. We request to exchange the code for an access token
-          accessToken = await exchangeToken(event, codeVerifier);
+          tokens = await exchangeToken(event, codeVerifier);
           break serverLoop;
         }
 
@@ -82,8 +94,8 @@ async function getAccessToken(
     }
   }
 
-  if (!accessToken) throw new Error("Couldn't get access token.");
-  return accessToken;
+  if (!tokens) throw new Error("Couldn't get tokens.");
+  return tokens;
 }
 
 async function exchangeToken(event: Deno.RequestEvent, codeVerifier: string) {
@@ -108,15 +120,55 @@ async function exchangeToken(event: Deno.RequestEvent, codeVerifier: string) {
     }),
   });
   const body = await response.json();
-  return body.access_token as string;
+  return body as Tokens;
+}
+
+async function getFreshTokens(tokens: Tokens) {
+  const response = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    body: new URLSearchParams({
+      client_id: CLIENT_ID,
+      grant_type: "refresh_token",
+      refresh_token: tokens.refresh_token,
+    }),
+    headers: new Headers({
+      "Content-Type": "application/x-www-form-urlencoded",
+    }),
+  });
+  const body = await response.json();
+  return body as Tokens;
+}
+
+async function tryTokenCache() {
+  if (!existsSync(".cache/tokens")) return null;
+  try {
+    const cache = Deno.readTextFileSync(".cache/tokens");
+    const cachedTokens: Tokens | undefined = JSON.parse(cache);
+    if (!cachedTokens) return null;
+    const freshTokens = await getFreshTokens(cachedTokens);
+    cacheTokens(freshTokens);
+    return freshTokens;
+  } catch (e) {
+    console.debug("Accessing token cache failed with:", e);
+    return null;
+  }
+}
+
+function cacheTokens(tokens: Tokens) {
+  ensureDirSync(".cache");
+  Deno.writeTextFile(".cache/tokens", JSON.stringify(tokens));
 }
 
 export async function auth() {
+  const cachedTokens = await tryTokenCache();
+  if (cachedTokens) return cachedTokens;
+
   const pkce = generatePkce();
   const authUri = getAuthUri(pkce.codeChallenge);
   const server = Deno.listen({ port: PORT });
   // openBrowser(`http://localhost:${PORT}`);
-  const token = await getAccessToken(server, authUri, pkce.codeVerifier);
-  console.debug("Access token retrieved.", token);
-  return token;
+  const tokens = await getTokens(server, authUri, pkce.codeVerifier);
+
+  cacheTokens(tokens);
+  return tokens;
 }
